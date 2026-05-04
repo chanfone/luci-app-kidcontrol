@@ -43,7 +43,7 @@
 		<div class="kid-switch-row">
 			<span>总开关：</span>
 			<span class="kid-switch-state <% if global_enabled then %>kid-ok<% else %>kid-bad<% end %>"><% if global_enabled then %>已开启<% else %>已关闭<% end %></span>
-			<form method="post" action="<%=url%>">
+			<form method="post" action="<%=page_url%>">
 				<input type="hidden" name="do" value="toggle_global" />
 				<input type="hidden" name="value" value="<% if global_enabled then %>0<% else %>1<% end %>" />
 				<input class="btn cbi-button <% if global_enabled then %>cbi-button-reset<% else %>cbi-button-apply<% end %>" type="submit" value="<% if global_enabled then %>关闭管控<% else %>开启管控<% end %>" />
@@ -51,24 +51,24 @@
 		</div>
 		<p>AdGuard Home：<strong class="<% if agh == 'running' then %>kid-ok<% else %>kid-bad<% end %>"><%=esc(agh)%></strong></p>
 		<p>儿童管控自启：<strong><%=esc(kidcontrol)%></strong></p>
-		<form method="post" action="<%=url%>">
+		<form method="post" action="<%=page_url%>">
 			<input type="hidden" name="do" value="apply" />
 			<input class="btn cbi-button cbi-button-apply" type="submit" value="<%:重新应用规则%>" />
 		</form>
 	</div>
 	<div class="kid-panel">
 		<h3><%:新增孩子设备%></h3>
-		<form method="post" action="<%=url%>">
-			<input type="hidden" name="do" value="add_device" />
-			<p><label>名称<br /><input class="kid-input" name="name" placeholder="Kid-Raymond-PC" /></label></p>
-			<p><label>IP<br /><input class="kid-input" name="ip" placeholder="192.168.1.104" /></label></p>
-			<p><label>MAC<br /><input class="kid-input" name="mac" placeholder="留空时会用 IP 自动查找" /></label></p>
+		<form method="post" action="<%=page_url%>">
+			<p><label>名称<br /><input class="kid-input" name="name" value="<%=esc(lookup_values.name)%>" placeholder="Kid-Raymond-PC" /></label></p>
+			<p><label>IP<br /><input class="kid-input" name="ip" value="<%=esc(lookup_values.ip)%>" placeholder="192.168.1.104" /></label></p>
+			<p><label>MAC<br /><input class="kid-input" name="mac" value="<%=esc(lookup_values.mac)%>" placeholder="留空时会用 IP 自动查找" /></label></p>
 			<p>
 				<label><input type="checkbox" name="enabled" value="1" checked="checked" /> 启用 DNS 管控</label><br />
 				<label><input type="checkbox" name="block_dot" value="1" checked="checked" /> 阻断私人 DNS / DoT 853</label>
 			</p>
-			<input class="btn cbi-button cbi-button-add" type="submit" value="<%:添加设备%>" />
-			<p class="kid-muted">输入 IP 时会从 DHCP 租约和邻居表自动查 MAC；最终规则按 MAC 生效。</p>
+			<button class="btn cbi-button cbi-button-find" type="submit" name="do" value="lookup_device"><%:查找设备%></button>
+			<button class="btn cbi-button cbi-button-add" type="submit" name="do" value="add_device"><%:添加设备%></button>
+			<p class="kid-muted">填写名称、IP 或 MAC 任意一项后可查找；会从 DHCP 静态地址、当前租约、邻居表和已有管控设备中补齐信息，最终规则按 MAC 生效。</p>
 		</form>
 	</div>
 </div>
@@ -91,13 +91,13 @@
 		<td><% if (d.enabled or "1") == "1" then %><span class="kid-ok">启用</span><% else %><span class="kid-bad">停用</span><% end %></td>
 		<td><% if (d.block_dot or "1") == "1" then %>阻断<% else %>不阻断<% end %></td>
 		<td class="kid-actions">
-			<form method="post" action="<%=url%>">
+			<form method="post" action="<%=page_url%>">
 				<input type="hidden" name="do" value="toggle_device" />
 				<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
 				<input type="hidden" name="value" value="<% if (d.enabled or "1") == "1" then %>0<% else %>1<% end %>" />
 				<input class="btn cbi-button" type="submit" value="<% if (d.enabled or "1") == "1" then %>停用<% else %>启用<% end %>" />
 			</form>
-			<form method="post" action="<%=url%>">
+			<form method="post" action="<%=page_url%>">
 				<input type="hidden" name="do" value="delete_device" />
 				<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
 				<input class="btn cbi-button cbi-button-remove" type="submit" value="删除" />
@@ -119,7 +119,7 @@
 			</div>
 			<p class="kid-muted"><%=esc(c.desc)%></p>
 			<p class="kid-muted">服务：<%=#c.services%> 个，补充域名：<%=#c.domains%> 个</p>
-			<form method="post" action="<%=url%>">
+			<form method="post" action="<%=page_url%>">
 				<input type="hidden" name="do" value="toggle_category" />
 				<input type="hidden" name="id" value="<%=esc(c.id)%>" />
 				<input type="hidden" name="value" value="<% if c.enabled then %>0<% else %>1<% end %>" />
@@ -132,7 +132,7 @@
 
 <details class="kid-panel">
 	<summary class="kid-summary"><%:自定义屏蔽域名%>（<%=#domains%> 条）</summary>
-	<form method="post" action="<%=url%>">
+	<form method="post" action="<%=page_url%>">
 		<input type="hidden" name="do" value="add_domain" />
 		<div class="kid-switch-row">
 			<label style="flex: 1 1 320px;">域名或 URL<br /><input class="kid-input" name="domain" placeholder="example.com 或 https://example.com/path" /></label>
@@ -152,13 +152,13 @@
 				<td><%=esc(d.domain)%></td>
 				<td><% if (d.enabled or "1") == "1" then %><span class="kid-ok">启用</span><% else %><span class="kid-bad">停用</span><% end %></td>
 				<td class="kid-compact-actions">
-					<form method="post" action="<%=url%>">
+					<form method="post" action="<%=page_url%>">
 						<input type="hidden" name="do" value="toggle_domain" />
 						<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
 						<input type="hidden" name="value" value="<% if (d.enabled or "1") == "1" then %>0<% else %>1<% end %>" />
 						<input class="btn cbi-button" type="submit" value="<% if (d.enabled or "1") == "1" then %>停用<% else %>启用<% end %>" />
 					</form>
-					<form method="post" action="<%=url%>">
+					<form method="post" action="<%=page_url%>">
 						<input type="hidden" name="do" value="delete_domain" />
 						<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
 						<input class="btn cbi-button cbi-button-remove" type="submit" value="删除" />
@@ -179,7 +179,7 @@
 	</div>
 	<div class="kid-panel">
 		<h3><%:导入配置%></h3>
-		<form method="post" action="<%=url%>">
+		<form method="post" action="<%=page_url%>">
 			<input type="hidden" name="do" value="import" />
 			<textarea class="kid-textarea" name="import_json" placeholder="粘贴 kidcontrol-backup.json 内容"></textarea>
 			<p><input class="btn cbi-button cbi-button-apply" type="submit" value="<%:导入并应用%>" /></p>

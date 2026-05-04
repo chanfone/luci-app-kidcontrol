@@ -11,7 +11,7 @@ function index()
 end
 
 local function trim(s)
-	return (s or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	return tostring(s or ""):gsub("^%s+", ""):gsub("%s+$", "")
 end
 
 local function esc(s)
@@ -142,6 +142,68 @@ local function lookup_ip(ip)
 	local neigh = cmd("ip neigh show " .. ip)
 	local mac = neigh:match("lladdr%s+([%x:]+)")
 	return norm_mac(mac), ""
+end
+
+local function add_match(matches, name, ip, mac, source)
+	ip = valid_ip(ip or "") or ""
+	mac = norm_mac(mac or "")
+	name = trim(name or "")
+	if not mac and ip == "" and name == "" then return end
+	matches[#matches + 1] = {
+		name = name,
+		ip = ip,
+		mac = mac or "",
+		source = source or ""
+	}
+end
+
+local function device_matches()
+	local matches = {}
+	uci:foreach("kidcontrol", "device", function(s)
+		add_match(matches, s.name, s.ip, s.mac, "儿童管控")
+	end)
+	uci:foreach("dhcp", "host", function(s)
+		add_match(matches, s.name, s.ip, s.mac, "DHCP 静态地址")
+	end)
+	local f = io.open("/tmp/dhcp.leases", "r")
+	if f then
+		for line in f:lines() do
+			local _, mac, ip, name = line:match("^(%S+)%s+(%S+)%s+(%S+)%s+(%S+)")
+			add_match(matches, name ~= "*" and name or "", ip, mac, "DHCP 当前租约")
+		end
+		f:close()
+	end
+	local neigh = cmd("ip neigh show")
+	for line in neigh:gmatch("[^\n]+") do
+		local ip = line:match("^(%d+%.%d+%.%d+%.%d+)%s")
+		local mac = line:match("lladdr%s+([%x:]+)")
+		add_match(matches, "", ip, mac, "邻居表")
+	end
+	return matches
+end
+
+local function find_device(name, ip, mac)
+	name = trim(name or "")
+	ip = valid_ip(ip or "") or ""
+	mac = norm_mac(mac or "")
+	local lname = name:lower()
+	local best, best_score = nil, -1
+	for _, item in ipairs(device_matches()) do
+		local score = 0
+		if mac and norm_mac(item.mac) == mac then score = score + 100 end
+		if ip ~= "" and item.ip == ip then score = score + 80 end
+		if lname ~= "" and item.name:lower() == lname then score = score + 60 end
+		if lname ~= "" and item.name:lower():find(lname, 1, true) then score = score + 25 end
+		if score > best_score then
+			best, best_score = item, score
+		end
+	end
+	if best and best_score > 0 then return best end
+	if ip ~= "" then
+		local found_mac, found_name = lookup_ip(ip)
+		if found_mac then return { name = found_name or "", ip = ip, mac = found_mac, source = "在线查询" } end
+	end
+	return nil
 end
 
 local function sections(stype)
@@ -401,11 +463,15 @@ end
 local function add_device(http)
 	local ip = valid_ip(http.formvalue("ip") or "") or ""
 	local mac = norm_mac(http.formvalue("mac") or "")
-	local found_name = ""
-	if not mac and ip ~= "" then mac, found_name = lookup_ip(ip) end
-	if not mac then return false, "没有找到 MAC。请确认设备在线，或手动填写 MAC 地址。" end
 	local name = trim(http.formvalue("name") or "")
-	if name == "" then name = found_name ~= "" and found_name or ("Kid-" .. mac:gsub(":", "")) end
+	local found = find_device(name, ip, mac)
+	if found then
+		if ip == "" then ip = found.ip or "" end
+		if not mac then mac = norm_mac(found.mac or "") end
+		if name == "" then name = found.name or "" end
+	end
+	if not mac then return false, "没有找到 MAC。请确认设备在线，或手动填写 MAC 地址。" end
+	if name == "" then name = "Kid-" .. mac:gsub(":", "") end
 	local s = uci:add("kidcontrol", "device")
 	uci:set("kidcontrol", s, "name", name)
 	uci:set("kidcontrol", s, "ip", ip)
@@ -414,6 +480,25 @@ local function add_device(http)
 	uci:set("kidcontrol", s, "block_dot", http.formvalue("block_dot") and "1" or "0")
 	uci:commit("kidcontrol")
 	return apply_all()
+end
+
+local function lookup_device_form(http)
+	local name = trim(http.formvalue("name") or "")
+	local ip = valid_ip(http.formvalue("ip") or "") or ""
+	local mac = norm_mac(http.formvalue("mac") or "")
+	local found = find_device(name, ip, mac)
+	if not found then
+		return false, "没有找到匹配设备。请确认设备在线，或先在 网络 -> DHCP/DNS -> 静态地址 中绑定。", {
+			name = name,
+			ip = ip,
+			mac = mac or ""
+		}
+	end
+	return true, "已从 " .. found.source .. " 找到设备信息，请确认后点击添加设备。", {
+		name = found.name ~= "" and found.name or name,
+		ip = found.ip ~= "" and found.ip or ip,
+		mac = found.mac ~= "" and found.mac or (mac or "")
+	}
 end
 
 local function add_domain(http)
@@ -559,6 +644,11 @@ function action_index()
 	local tpl = require("luci.template")
 	local action = http.formvalue("do")
 	local ok, notice = true, nil
+	local lookup_values = {
+		name = "",
+		ip = "",
+		mac = ""
+	}
 
 	if action == "export" then
 		http.header("Content-Disposition", "attachment; filename=kidcontrol-backup.json")
@@ -568,7 +658,13 @@ function action_index()
 	end
 
 	if http.getenv("REQUEST_METHOD") == "POST" then
+		lookup_values = {
+			name = trim(http.formvalue("name") or ""),
+			ip = valid_ip(http.formvalue("ip") or "") or trim(http.formvalue("ip") or ""),
+			mac = norm_mac(http.formvalue("mac") or "") or trim(http.formvalue("mac") or "")
+		}
 		if action == "add_device" then ok, notice = add_device(http)
+		elseif action == "lookup_device" then ok, notice, lookup_values = lookup_device_form(http)
 		elseif action == "add_domain" then ok, notice = add_domain(http)
 		elseif action == "delete_device" then uci:delete("kidcontrol", http.formvalue("section")); uci:commit("kidcontrol"); ok, notice = apply_all()
 		elseif action == "delete_domain" then uci:delete("kidcontrol", http.formvalue("section")); uci:commit("kidcontrol"); ok, notice = apply_all()
@@ -578,6 +674,9 @@ function action_index()
 		elseif action == "toggle_category" then ok, notice = set_category_enabled(http.formvalue("id"), http.formvalue("value"))
 		elseif action == "apply" then ok, notice = apply_all()
 		elseif action == "import" then ok, notice = import_data(http.formvalue("import_json"))
+		end
+		if action == "add_device" and ok then
+			lookup_values = { name = "", ip = "", mac = "" }
 		end
 	end
 
@@ -593,8 +692,9 @@ function action_index()
 
 	tpl.render("kidcontrol/index", {
 		esc = esc,
-		url = dsp.build_url("admin/services/kidcontrol"),
-		export_url = dsp.build_url("admin/services/kidcontrol") .. "?do=export",
+		page_url = dsp.build_url("admin", "services", "kidcontrol"),
+		export_url = dsp.build_url("admin", "services", "kidcontrol") .. "?do=export",
+		lookup_values = lookup_values,
 		devices = devices,
 		domains = domains,
 		rules = rules,

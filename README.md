@@ -10,6 +10,7 @@ OpenWrt/ImmortalWrt LuCI parental control helper backed by AdGuard Home.
 - DoT `853` blocking for managed child devices
 - Category switches for short video, game platforms, proxy DNS, and common apps
 - Custom domain blocklist import/export
+- Device lookup by name, IP, or MAC from DHCP static leases, current leases, and neighbor table
 - Sysupgrade preserve entries for plugin files and configuration
 
 ## Install
