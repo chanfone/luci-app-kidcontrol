@@ -55,7 +55,7 @@
 		<p>儿童管控自启：<strong><%=esc(kidcontrol)%></strong></p>
 		<form method="post" action="<%=page_url%>">
 			<input type="hidden" name="do" value="apply" />
-			<input class="btn cbi-button cbi-button-apply" type="submit" value="<%:重新应用规则%>" />
+			<input class="btn cbi-button cbi-button-apply" type="submit" value="<%:保存并应用%>" />
 		</form>
 	</div>
 	<div class="kid-panel">
@@ -69,7 +69,8 @@
 				<label><input type="checkbox" name="block_dot" value="1" checked="checked" /> 阻断私人 DNS / DoT 853</label>
 			</p>
 			<button class="btn cbi-button cbi-button-find" type="submit" name="do" value="lookup_device"><%:查找设备%></button>
-			<button class="btn cbi-button cbi-button-add" type="submit" name="do" value="add_device"><%:添加设备%></button>
+			<button class="btn cbi-button cbi-button-add" type="submit" name="do" value="add_device"><%:添加并应用%></button>
+			<a class="btn cbi-button cbi-button-reset" href="<%=page_url%>"><%:取消%></a>
 			<p class="kid-muted">填写名称、IP 或 MAC 任意一项后可查找；有 MAC 时按 MAC 管控，没有 MAC 但有固定 IP 时也可以先按 IP 管控。</p>
 		</form>
 	</div>
@@ -97,12 +98,12 @@
 				<input type="hidden" name="do" value="toggle_device" />
 				<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
 				<input type="hidden" name="value" value="<% if (d.enabled or "1") == "1" then %>0<% else %>1<% end %>" />
-				<input class="btn cbi-button" type="submit" value="<% if (d.enabled or "1") == "1" then %>停用<% else %>启用<% end %>" />
+				<input class="btn cbi-button" type="submit" value="<% if (d.enabled or "1") == "1" then %>停用并应用<% else %>启用并应用<% end %>" />
 			</form>
 			<form method="post" action="<%=page_url%>">
 				<input type="hidden" name="do" value="delete_device" />
 				<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
-				<input class="btn cbi-button cbi-button-remove" type="submit" value="删除" />
+				<input class="btn cbi-button cbi-button-remove" type="submit" value="删除并应用" />
 			</form>
 		</td>
 	</tr>
@@ -125,7 +126,7 @@
 				<input type="hidden" name="do" value="toggle_category" />
 				<input type="hidden" name="id" value="<%=esc(c.id)%>" />
 				<input type="hidden" name="value" value="<% if c.enabled then %>0<% else %>1<% end %>" />
-				<input class="btn cbi-button <% if c.enabled then %>cbi-button-reset<% else %>cbi-button-apply<% end %>" type="submit" value="<% if c.enabled then %>关闭分类<% else %>开启分类<% end %>" />
+				<input class="btn cbi-button <% if c.enabled then %>cbi-button-reset<% else %>cbi-button-apply<% end %>" type="submit" value="<% if c.enabled then %>关闭并应用<% else %>开启并应用<% end %>" />
 			</form>
 		</div>
 		<% end %>
@@ -138,7 +139,7 @@
 		<input type="hidden" name="do" value="add_domain" />
 		<div class="kid-switch-row">
 			<label style="flex: 1 1 320px;">域名或 URL<br /><input class="kid-input" name="domain" placeholder="example.com 或 https://example.com/path" /></label>
-			<span style="align-self: end;"><input class="btn cbi-button cbi-button-add" type="submit" value="<%:添加域名%>" /></span>
+			<span style="align-self: end;"><input class="btn cbi-button cbi-button-add" type="submit" value="<%:添加并应用%>" /></span>
 		</div>
 		<p class="kid-muted">会自动生成 <code>||域名^</code>，屏蔽主域名和所有子域名；下方可停用或删除单条规则。</p>
 	</form>
@@ -158,12 +159,12 @@
 						<input type="hidden" name="do" value="toggle_domain" />
 						<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
 						<input type="hidden" name="value" value="<% if (d.enabled or "1") == "1" then %>0<% else %>1<% end %>" />
-						<input class="btn cbi-button" type="submit" value="<% if (d.enabled or "1") == "1" then %>停用<% else %>启用<% end %>" />
+						<input class="btn cbi-button" type="submit" value="<% if (d.enabled or "1") == "1" then %>停用并应用<% else %>启用并应用<% end %>" />
 					</form>
 					<form method="post" action="<%=page_url%>">
 						<input type="hidden" name="do" value="delete_domain" />
 						<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
-						<input class="btn cbi-button cbi-button-remove" type="submit" value="删除" />
+						<input class="btn cbi-button cbi-button-remove" type="submit" value="删除并应用" />
 					</form>
 				</td>
 			</tr>

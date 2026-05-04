@@ -221,10 +221,114 @@ local function sections(stype)
 	return t
 end
 
+local function find_existing_domain(domain)
+	domain = norm_domain(domain or "")
+	if not domain then return nil end
+	local found = nil
+	uci:foreach("kidcontrol", "domain", function(s)
+		if not found and norm_domain(s.domain or "") == domain then
+			found = s
+		end
+	end)
+	return found
+end
+
+local function find_existing_device(name, ip, mac)
+	name = trim(name or "")
+	ip = valid_ip(ip or "") or ""
+	mac = norm_mac(mac or "")
+	local lname = name:lower()
+	local found = nil
+	uci:foreach("kidcontrol", "device", function(s)
+		if found then return end
+		local smac = norm_mac(s.mac or "")
+		local sip = valid_ip(s.ip or "") or ""
+		local sname = trim(s.name or "")
+		if mac and smac == mac then
+			found = s
+		elseif ip ~= "" and sip == ip then
+			found = s
+		elseif lname ~= "" and sname:lower() == lname then
+			found = s
+		end
+	end)
+	return found
+end
+
+local function dedupe_config()
+	local changed, removed = false, 0
+	local domain_seen, domain_remove = {}, {}
+	uci:foreach("kidcontrol", "domain", function(s)
+		local domain = norm_domain(s.domain or "")
+		if domain then
+			if domain_seen[domain] then
+				domain_remove[#domain_remove + 1] = s[".name"]
+			else
+				domain_seen[domain] = s[".name"]
+				if s.domain ~= domain then
+					uci:set("kidcontrol", s[".name"], "domain", domain)
+					changed = true
+				end
+			end
+		end
+	end)
+	for _, section in ipairs(domain_remove) do
+		uci:delete("kidcontrol", section)
+		removed = removed + 1
+		changed = true
+	end
+
+	local device_seen, device_remove = {}, {}
+	uci:foreach("kidcontrol", "device", function(s)
+		local mac = norm_mac(s.mac or "")
+		local ip = valid_ip(s.ip or "") or ""
+		local key = nil
+		if mac then key = "mac:" .. mac
+		elseif ip ~= "" then key = "ip:" .. ip
+		else key = "name:" .. trim(s.name or ""):lower()
+		end
+		if key and device_seen[key] then
+			local keep = device_seen[key]
+			if trim(uci:get("kidcontrol", keep, "name") or "") == "" and trim(s.name or "") ~= "" then
+				uci:set("kidcontrol", keep, "name", trim(s.name))
+			end
+			if (uci:get("kidcontrol", keep, "ip") or "") == "" and ip ~= "" then
+				uci:set("kidcontrol", keep, "ip", ip)
+			end
+			if not norm_mac(uci:get("kidcontrol", keep, "mac") or "") and mac then
+				uci:set("kidcontrol", keep, "mac", mac)
+			end
+			if (s.enabled or "1") == "1" then uci:set("kidcontrol", keep, "enabled", "1") end
+			if (s.block_dot or "1") == "1" then uci:set("kidcontrol", keep, "block_dot", "1") end
+			device_remove[#device_remove + 1] = s[".name"]
+		elseif key then
+			device_seen[key] = s[".name"]
+		end
+	end)
+	for _, section in ipairs(device_remove) do
+		uci:delete("kidcontrol", section)
+		removed = removed + 1
+		changed = true
+	end
+
+	if changed then uci:commit("kidcontrol") end
+	return removed
+end
+
 local function delete_sections(stype)
 	local names = {}
 	uci:foreach("kidcontrol", stype, function(s) names[#names + 1] = s[".name"] end)
 	for _, name in ipairs(names) do uci:delete("kidcontrol", name) end
+end
+
+local function section_exists(stype, section)
+	local exists = false
+	section = trim(section or "")
+	if section == "" then return false end
+	uci:foreach("kidcontrol", stype, function(s)
+		if s[".name"] == section then exists = true end
+	end)
+	return exists
 end
 
 local function device_mac_set()
@@ -389,6 +493,7 @@ local function sync_adguard_rules()
 end
 
 local function apply_all()
+	dedupe_config()
 	sync_dhcp()
 	local ok, msg = sync_adguard_rules()
 	local ok_services, msg_services = sync_adguard_services()
@@ -479,6 +584,21 @@ local function add_device(http)
 	end
 	if not mac and ip == "" then return false, "没有找到 MAC，也没有可用固定 IP。请至少填写 IP 地址，或在 DHCP 静态地址中绑定后再添加。" end
 	if name == "" then name = mac and ("Kid-" .. mac:gsub(":", "")) or ("Kid-" .. ip:gsub("%.", "-")) end
+	local existing = find_existing_device(name, ip, mac)
+	if existing then
+		local changed = false
+		local section = existing[".name"]
+		if trim(existing.name or "") == "" and name ~= "" then uci:set("kidcontrol", section, "name", name); changed = true end
+		if (existing.ip or "") == "" and ip ~= "" then uci:set("kidcontrol", section, "ip", ip); changed = true end
+		if not norm_mac(existing.mac or "") and mac then uci:set("kidcontrol", section, "mac", mac); changed = true end
+		if changed then
+			uci:commit("kidcontrol")
+			local ok, msg = apply_all()
+			if not ok then return false, msg end
+			return true, "设备已存在，未重复添加；已补全缺失信息并重新应用规则。"
+		end
+		return false, "设备已存在，未重复添加。"
+	end
 	local s = uci:add("kidcontrol", "device")
 	uci:set("kidcontrol", s, "name", name)
 	uci:set("kidcontrol", s, "ip", ip)
@@ -522,11 +642,30 @@ end
 local function add_domain(http)
 	local domain = norm_domain(http.formvalue("domain") or "")
 	if not domain then return false, "域名格式不正确。" end
+	if find_existing_domain(domain) then
+		return false, "域名已存在，未重复添加。"
+	end
 	local s = uci:add("kidcontrol", "domain")
 	uci:set("kidcontrol", s, "domain", domain)
 	uci:set("kidcontrol", s, "enabled", "1")
 	uci:commit("kidcontrol")
 	return apply_all()
+end
+
+local function delete_section(stype, section)
+	section = trim(section or "")
+	if not section_exists(stype, section) then
+		return false, "要删除的记录不存在，页面可能已经刷新过。"
+	end
+	uci:delete("kidcontrol", section)
+	uci:commit("kidcontrol")
+	local removed = dedupe_config()
+	local ok, msg = apply_all()
+	if not ok then return false, msg end
+	if removed > 0 then
+		return true, "已删除，并顺手清理了 " .. removed .. " 条重复记录。"
+	end
+	return true, "已删除并应用。"
 end
 
 local function set_section_option(section, option, value)
@@ -705,8 +844,8 @@ function action_index()
 		if action == "add_device" then ok, notice = add_device(http)
 		elseif action == "lookup_device" then ok, notice, lookup_values = lookup_device_form(http)
 		elseif action == "add_domain" then ok, notice = add_domain(http)
-		elseif action == "delete_device" then uci:delete("kidcontrol", http.formvalue("section")); uci:commit("kidcontrol"); ok, notice = apply_all()
-		elseif action == "delete_domain" then uci:delete("kidcontrol", http.formvalue("section")); uci:commit("kidcontrol"); ok, notice = apply_all()
+		elseif action == "delete_device" then ok, notice = delete_section("device", http.formvalue("section"))
+		elseif action == "delete_domain" then ok, notice = delete_section("domain", http.formvalue("section"))
 		elseif action == "toggle_device" then ok, notice = set_section_option(http.formvalue("section"), "enabled", http.formvalue("value") == "1" and "1" or "0")
 		elseif action == "toggle_domain" then ok, notice = set_section_option(http.formvalue("section"), "enabled", http.formvalue("value") == "1" and "1" or "0")
 		elseif action == "toggle_global" then ok, notice = set_global_enabled(http.formvalue("value"))
@@ -717,6 +856,12 @@ function action_index()
 		if action == "add_device" and ok then
 			lookup_values = { name = "", ip = "", mac = "" }
 		end
+	end
+
+	local cleaned = dedupe_config()
+	if cleaned > 0 and not notice then
+		notice = "已自动清理 " .. cleaned .. " 条重复记录。"
+		ok = true
 	end
 
 	local devices = sections("device")
