@@ -22,34 +22,48 @@ valid_mac() {
 	echo "$1" | grep -Eiq "^([0-9a-f]{2}:){5}[0-9a-f]{2}$"
 }
 
+valid_ip() {
+	echo "$1" | grep -Eq "^([0-9]{1,3}\.){3}[0-9]{1,3}$"
+}
+
 write_dns_rule() {
 	local section="$1"
-	local enabled mac name
+	local enabled mac ip name
 	config_get enabled "$section" enabled 1
 	[ "$GLOBAL_ENABLED" = "1" ] || return 0
 	[ "$enabled" = "1" ] || return 0
 	config_get mac "$section" mac
+	config_get ip "$section" ip
 	config_get name "$section" name "$section"
 	mac="$(echo "$mac" | tr "A-F" "a-f")"
-	valid_mac "$mac" || return 0
-	printf "\tiifname \"%s\" ether saddr %s udp dport 53 counter redirect to :%s comment \"KidControl DNS udp %s\"\n" "$LAN_IFACE" "$mac" "$AGH_PORT" "$name"
-	printf "\tiifname \"%s\" ether saddr %s tcp dport 53 counter redirect to :%s comment \"KidControl DNS tcp %s\"\n" "$LAN_IFACE" "$mac" "$AGH_PORT" "$name"
+	if valid_mac "$mac"; then
+		printf "\tiifname \"%s\" ether saddr %s udp dport 53 counter redirect to :%s comment \"KidControl DNS udp %s\"\n" "$LAN_IFACE" "$mac" "$AGH_PORT" "$name"
+		printf "\tiifname \"%s\" ether saddr %s tcp dport 53 counter redirect to :%s comment \"KidControl DNS tcp %s\"\n" "$LAN_IFACE" "$mac" "$AGH_PORT" "$name"
+	elif valid_ip "$ip"; then
+		printf "\tiifname \"%s\" ip saddr %s udp dport 53 counter redirect to :%s comment \"KidControl DNS udp %s ip-fallback\"\n" "$LAN_IFACE" "$ip" "$AGH_PORT" "$name"
+		printf "\tiifname \"%s\" ip saddr %s tcp dport 53 counter redirect to :%s comment \"KidControl DNS tcp %s ip-fallback\"\n" "$LAN_IFACE" "$ip" "$AGH_PORT" "$name"
+	fi
 }
 
 write_dot_rule() {
 	local section="$1"
-	local enabled mac block_dot name
+	local enabled mac ip block_dot name
 	config_get enabled "$section" enabled 1
 	[ "$GLOBAL_ENABLED" = "1" ] || return 0
 	[ "$enabled" = "1" ] || return 0
 	config_get block_dot "$section" block_dot 1
 	[ "$block_dot" = "1" ] || return 0
 	config_get mac "$section" mac
+	config_get ip "$section" ip
 	config_get name "$section" name "$section"
 	mac="$(echo "$mac" | tr "A-F" "a-f")"
-	valid_mac "$mac" || return 0
-	printf "\tiifname \"%s\" ether saddr %s tcp dport 853 counter reject with tcp reset comment \"KidControl block DoT tcp %s\"\n" "$LAN_IFACE" "$mac" "$name"
-	printf "\tiifname \"%s\" ether saddr %s udp dport 853 counter reject comment \"KidControl block DoT udp %s\"\n" "$LAN_IFACE" "$mac" "$name"
+	if valid_mac "$mac"; then
+		printf "\tiifname \"%s\" ether saddr %s tcp dport 853 counter reject with tcp reset comment \"KidControl block DoT tcp %s\"\n" "$LAN_IFACE" "$mac" "$name"
+		printf "\tiifname \"%s\" ether saddr %s udp dport 853 counter reject comment \"KidControl block DoT udp %s\"\n" "$LAN_IFACE" "$mac" "$name"
+	elif valid_ip "$ip"; then
+		printf "\tiifname \"%s\" ip saddr %s tcp dport 853 counter reject with tcp reset comment \"KidControl block DoT tcp %s ip-fallback\"\n" "$LAN_IFACE" "$ip" "$name"
+		printf "\tiifname \"%s\" ip saddr %s udp dport 853 counter reject comment \"KidControl block DoT udp %s ip-fallback\"\n" "$LAN_IFACE" "$ip" "$name"
+	fi
 }
 
 generate_rules() {

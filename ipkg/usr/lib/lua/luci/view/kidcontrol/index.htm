@@ -29,6 +29,8 @@
 .kid-category { border: 1px solid #e5e5e5; border-radius: 6px; padding: 10px; background: #fff; }
 .kid-category-title { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .kid-category h4 { margin: 0; }
+.alert-message.error { color: #fff !important; background: #f05a3f !important; }
+.alert-message.error .message, .alert-message.error * { color: #fff !important; }
 </style>
 
 <h2><%:儿童上网管控%></h2>
@@ -68,7 +70,7 @@
 			</p>
 			<button class="btn cbi-button cbi-button-find" type="submit" name="do" value="lookup_device"><%:查找设备%></button>
 			<button class="btn cbi-button cbi-button-add" type="submit" name="do" value="add_device"><%:添加设备%></button>
-			<p class="kid-muted">填写名称、IP 或 MAC 任意一项后可查找；会从 DHCP 静态地址、当前租约、邻居表和已有管控设备中补齐信息，最终规则按 MAC 生效。</p>
+			<p class="kid-muted">填写名称、IP 或 MAC 任意一项后可查找；有 MAC 时按 MAC 管控，没有 MAC 但有固定 IP 时也可以先按 IP 管控。</p>
 		</form>
 	</div>
 </div>
@@ -87,7 +89,7 @@
 	<tr>
 		<td><%=esc(d.name)%></td>
 		<td><%=esc(d.ip)%></td>
-		<td><%=esc(d.mac)%></td>
+		<td><% if d.mac and d.mac ~= "" then %><%=esc(d.mac)%><% else %><span class="kid-muted">未记录，按 IP 管控</span><% end %></td>
 		<td><% if (d.enabled or "1") == "1" then %><span class="kid-ok">启用</span><% else %><span class="kid-bad">停用</span><% end %></td>
 		<td><% if (d.block_dot or "1") == "1" then %>阻断<% else %>不阻断<% end %></td>
 		<td class="kid-actions">
@@ -250,7 +252,7 @@
 	<% for _, r in ipairs(rules) do %>
 	<tr>
 		<td><%=esc(r.name)%><br /><span class="kid-muted"><%=esc(r.ip)%></span></td>
-		<td>MAC<br /><code><%=esc(r.mac)%></code></td>
+		<td><%=esc(r.match_type)%><br /><code><%=esc(r.match_value)%></code></td>
 		<td><% if r.enabled then %><span class="kid-pill kid-pill-ok">已启用</span><% else %><span class="kid-pill kid-pill-bad">已停用</span><% end %></td>
 		<td><% if r.block_dot then %><span class="kid-pill kid-pill-ok">阻断</span><% else %><span class="kid-pill">不阻断</span><% end %></td>
 		<td><%=esc(r.dns_packets)%> 次</td>

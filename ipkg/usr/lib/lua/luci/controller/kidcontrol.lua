@@ -26,6 +26,13 @@ local function cmd(command)
 end
 
 local function norm_mac(mac)
+	if type(mac) == "table" then
+		for _, value in pairs(mac) do
+			local found = norm_mac(value)
+			if found then return found end
+		end
+		return nil
+	end
 	mac = trim(mac):lower():gsub("-", ":")
 	if mac:match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$") then
 		return mac
@@ -432,11 +439,11 @@ local function import_data(text)
 	for _, d in ipairs(data.devices) do
 		local mac = norm_mac(d.mac or "")
 		local ip = valid_ip(d.ip or "") or ""
-		if mac then
+		if mac or ip ~= "" then
 			local s = uci:add("kidcontrol", "device")
 			uci:set("kidcontrol", s, "name", trim(d.name or "Kid-Device"))
 			uci:set("kidcontrol", s, "ip", ip)
-			uci:set("kidcontrol", s, "mac", mac)
+			if mac then uci:set("kidcontrol", s, "mac", mac) end
 			uci:set("kidcontrol", s, "enabled", d.enabled == false and "0" or "1")
 			uci:set("kidcontrol", s, "block_dot", d.block_dot == false and "0" or "1")
 		end
@@ -470,12 +477,12 @@ local function add_device(http)
 		if not mac then mac = norm_mac(found.mac or "") end
 		if name == "" then name = found.name or "" end
 	end
-	if not mac then return false, "没有找到 MAC。请确认设备在线，或手动填写 MAC 地址。" end
-	if name == "" then name = "Kid-" .. mac:gsub(":", "") end
+	if not mac and ip == "" then return false, "没有找到 MAC，也没有可用固定 IP。请至少填写 IP 地址，或在 DHCP 静态地址中绑定后再添加。" end
+	if name == "" then name = mac and ("Kid-" .. mac:gsub(":", "")) or ("Kid-" .. ip:gsub("%.", "-")) end
 	local s = uci:add("kidcontrol", "device")
 	uci:set("kidcontrol", s, "name", name)
 	uci:set("kidcontrol", s, "ip", ip)
-	uci:set("kidcontrol", s, "mac", mac)
+	if mac then uci:set("kidcontrol", s, "mac", mac) end
 	uci:set("kidcontrol", s, "enabled", http.formvalue("enabled") and "1" or "0")
 	uci:set("kidcontrol", s, "block_dot", http.formvalue("block_dot") and "1" or "0")
 	uci:commit("kidcontrol")
@@ -488,13 +495,24 @@ local function lookup_device_form(http)
 	local mac = norm_mac(http.formvalue("mac") or "")
 	local found = find_device(name, ip, mac)
 	if not found then
+		if ip ~= "" then
+			return true, "未找到 MAC，但可以先按固定 IP 添加。设备上线或 DHCP 静态地址补齐 MAC 后，可再查找补全。", {
+				name = name,
+				ip = ip,
+				mac = mac or ""
+			}
+		end
 		return false, "没有找到匹配设备。请确认设备在线，或先在 网络 -> DHCP/DNS -> 静态地址 中绑定。", {
 			name = name,
 			ip = ip,
 			mac = mac or ""
 		}
 	end
-	return true, "已从 " .. found.source .. " 找到设备信息，请确认后点击添加设备。", {
+	local message = "已从 " .. found.source .. " 找到设备信息，请确认后点击添加设备。"
+	if (found.mac or "") == "" and (found.ip or ip) ~= "" then
+		message = "已从 " .. found.source .. " 找到名称/IP，但没有 MAC；可先按固定 IP 添加。"
+	end
+	return true, message, {
 		name = found.name ~= "" and found.name or name,
 		ip = found.ip ~= "" and found.ip or ip,
 		mac = found.mac ~= "" and found.mac or (mac or "")
@@ -618,17 +636,38 @@ local function counter_for(nft, mac, proto, port)
 	return tonumber(packets or 0), tonumber(bytes or 0)
 end
 
+local function counter_for_ip(nft, ip, proto, port)
+	ip = valid_ip(ip or "")
+	if not ip then return 0, 0 end
+	local pattern = "ip saddr " .. ip:gsub("%.", "%%.") .. ".-" .. proto .. " dport " .. port .. ".-counter packets (%d+) bytes (%d+)"
+	local packets, bytes = (nft or ""):match(pattern)
+	return tonumber(packets or 0), tonumber(bytes or 0)
+end
+
 local function rule_statuses(devices, nft)
 	local statuses = {}
 	for _, d in ipairs(devices) do
-		local udp_packets = counter_for(nft, d.mac, "udp", "53")
-		local tcp_packets = counter_for(nft, d.mac, "tcp", "53")
-		local dot_tcp = counter_for(nft, d.mac, "tcp", "853")
-		local dot_udp = counter_for(nft, d.mac, "udp", "853")
+		local mac = norm_mac(d.mac or "")
+		local match_type = mac and "MAC" or (valid_ip(d.ip or "") and "IP" or "未生效")
+		local match_value = mac or valid_ip(d.ip or "") or ""
+		local udp_packets, tcp_packets, dot_tcp, dot_udp
+		if mac then
+			udp_packets = counter_for(nft, mac, "udp", "53")
+			tcp_packets = counter_for(nft, mac, "tcp", "53")
+			dot_tcp = counter_for(nft, mac, "tcp", "853")
+			dot_udp = counter_for(nft, mac, "udp", "853")
+		else
+			udp_packets = counter_for_ip(nft, d.ip, "udp", "53")
+			tcp_packets = counter_for_ip(nft, d.ip, "tcp", "53")
+			dot_tcp = counter_for_ip(nft, d.ip, "tcp", "853")
+			dot_udp = counter_for_ip(nft, d.ip, "udp", "853")
+		end
 		statuses[#statuses + 1] = {
 			name = d.name or "",
 			ip = d.ip or "",
-			mac = d.mac or "",
+			mac = mac or "",
+			match_type = match_type,
+			match_value = match_value,
 			enabled = (d.enabled or "1") == "1",
 			block_dot = (d.block_dot or "1") == "1",
 			dns_packets = udp_packets + tcp_packets,

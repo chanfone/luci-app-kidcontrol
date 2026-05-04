@@ -6,6 +6,7 @@ OpenWrt/ImmortalWrt LuCI parental control helper backed by AdGuard Home.
 
 - `服务 -> 儿童上网管控` LuCI page
 - MAC-based child device DNS enforcement
+- IP-based fallback for offline devices when a MAC address is unavailable
 - DNS hijack for managed child devices to AdGuard Home
 - DoT `853` blocking for managed child devices
 - Category switches for short video, game platforms, proxy DNS, and common apps
