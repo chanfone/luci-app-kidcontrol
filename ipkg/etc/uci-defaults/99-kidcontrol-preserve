@@ -1,0 +1,31 @@
+#!/bin/sh
+
+if [ ! -s /etc/config/kidcontrol ]; then
+	mkdir -p /etc/config
+	{
+		echo
+		echo "config settings 'main'"
+		echo "	option enabled '1'"
+		echo "	option lan_iface 'br-lan'"
+		echo "	option agh_port '3053'"
+		echo "	option agh_url 'http://192.168.1.1:3000'"
+		echo "	option agh_user 'admin'"
+		echo "	option agh_password ''"
+		echo "	option rule_file '/etc/nftables.d/20-adguard-parental-test.nft'"
+		echo "	option block_dot_default '1'"
+	} > /etc/config/kidcontrol
+fi
+
+touch /etc/sysupgrade.conf 2>/dev/null || exit 0
+for path in \
+	/etc/config/kidcontrol \
+	/etc/init.d/kidcontrol \
+	/usr/lib/lua/luci/controller/kidcontrol.lua \
+	/usr/lib/lua/luci/view/kidcontrol/index.htm \
+	/usr/share/luci/menu.d/luci-app-kidcontrol.json \
+	/usr/share/rpcd/acl.d/luci-app-kidcontrol.json
+do
+	grep -qxF "$path" /etc/sysupgrade.conf 2>/dev/null || echo "$path" >> /etc/sysupgrade.conf
+done
+
+exit 0

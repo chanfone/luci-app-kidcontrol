@@ -1,0 +1,21 @@
+{
+	"luci-app-kidcontrol": {
+		"description": "Grant access to KidControl parental controls",
+		"read": {
+			"file": {
+				"/etc/config/kidcontrol": [ "read" ],
+				"/etc/nftables.d/20-adguard-parental-test.nft": [ "read" ],
+				"/etc/adguardhome.yaml": [ "read" ]
+			},
+			"uci": [ "kidcontrol", "dhcp" ]
+		},
+		"write": {
+			"file": {
+				"/etc/config/kidcontrol": [ "write" ],
+				"/etc/nftables.d/20-adguard-parental-test.nft": [ "write" ],
+				"/etc/adguardhome.yaml": [ "write" ]
+			},
+			"uci": [ "kidcontrol", "dhcp" ]
+		}
+	}
+}

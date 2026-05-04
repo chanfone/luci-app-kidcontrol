@@ -1,0 +1,268 @@
+<%+header%>
+
+<style>
+.kid-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.kid-panel { border: 1px solid #ddd; border-radius: 6px; padding: 14px; background: #fff; }
+.kid-panel h3 { margin-top: 0; }
+.kid-table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; }
+.kid-table th, .kid-table td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; vertical-align: middle; }
+.kid-actions form { display: inline-block; margin: 0 4px 4px 0; }
+.kid-muted { color: #777; font-size: 12px; }
+.kid-ok { color: #218838; }
+.kid-bad { color: #c82333; }
+.kid-code { white-space: pre-wrap; max-height: 260px; overflow: auto; background: #f7f7f7; border: 1px solid #ddd; padding: 10px; }
+.kid-textarea { width: 100%; min-height: 160px; font-family: monospace; }
+.kid-input { width: 100%; box-sizing: border-box; }
+.kid-readable { max-height: 360px; overflow: auto; }
+.kid-readable table { margin-bottom: 12px; }
+.kid-summary { cursor: pointer; font-weight: 700; padding: 10px 0; }
+.kid-listbox { border: 1px solid #ddd; border-radius: 6px; max-height: 280px; overflow: auto; background: #fff; }
+.kid-listbox .kid-table { margin: 0; }
+.kid-listbox .kid-table th, .kid-listbox .kid-table td { padding: 7px 8px; }
+.kid-compact-actions form { display: inline-block; margin: 0 3px 3px 0; }
+.kid-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #f0f1f3; font-size: 12px; }
+.kid-pill-ok { color: #218838; background: #eaf6ed; }
+.kid-pill-bad { color: #c82333; background: #fdecef; }
+.kid-switch-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.kid-switch-state { font-size: 18px; font-weight: 700; }
+.kid-category-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.kid-category { border: 1px solid #e5e5e5; border-radius: 6px; padding: 10px; background: #fff; }
+.kid-category-title { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.kid-category h4 { margin: 0; }
+</style>
+
+<h2><%:儿童上网管控%></h2>
+
+<% if notice then %>
+	<div class="alert-message <% if ok then %>success<% else %>error<% end %>"><%=esc(notice)%></div>
+<% end %>
+
+<div class="kid-grid">
+	<div class="kid-panel">
+		<h3><%:运行状态%></h3>
+		<div class="kid-switch-row">
+			<span>总开关：</span>
+			<span class="kid-switch-state <% if global_enabled then %>kid-ok<% else %>kid-bad<% end %>"><% if global_enabled then %>已开启<% else %>已关闭<% end %></span>
+			<form method="post" action="<%=url%>">
+				<input type="hidden" name="do" value="toggle_global" />
+				<input type="hidden" name="value" value="<% if global_enabled then %>0<% else %>1<% end %>" />
+				<input class="btn cbi-button <% if global_enabled then %>cbi-button-reset<% else %>cbi-button-apply<% end %>" type="submit" value="<% if global_enabled then %>关闭管控<% else %>开启管控<% end %>" />
+			</form>
+		</div>
+		<p>AdGuard Home：<strong class="<% if agh == 'running' then %>kid-ok<% else %>kid-bad<% end %>"><%=esc(agh)%></strong></p>
+		<p>儿童管控自启：<strong><%=esc(kidcontrol)%></strong></p>
+		<form method="post" action="<%=url%>">
+			<input type="hidden" name="do" value="apply" />
+			<input class="btn cbi-button cbi-button-apply" type="submit" value="<%:重新应用规则%>" />
+		</form>
+	</div>
+	<div class="kid-panel">
+		<h3><%:新增孩子设备%></h3>
+		<form method="post" action="<%=url%>">
+			<input type="hidden" name="do" value="add_device" />
+			<p><label>名称<br /><input class="kid-input" name="name" placeholder="Kid-Raymond-PC" /></label></p>
+			<p><label>IP<br /><input class="kid-input" name="ip" placeholder="192.168.1.104" /></label></p>
+			<p><label>MAC<br /><input class="kid-input" name="mac" placeholder="留空时会用 IP 自动查找" /></label></p>
+			<p>
+				<label><input type="checkbox" name="enabled" value="1" checked="checked" /> 启用 DNS 管控</label><br />
+				<label><input type="checkbox" name="block_dot" value="1" checked="checked" /> 阻断私人 DNS / DoT 853</label>
+			</p>
+			<input class="btn cbi-button cbi-button-add" type="submit" value="<%:添加设备%>" />
+			<p class="kid-muted">输入 IP 时会从 DHCP 租约和邻居表自动查 MAC；最终规则按 MAC 生效。</p>
+		</form>
+	</div>
+</div>
+
+<h3><%:孩子设备%></h3>
+<table class="kid-table">
+	<tr>
+		<th>名称</th>
+		<th>IP</th>
+		<th>MAC</th>
+		<th>状态</th>
+		<th>DoT 853</th>
+		<th>操作</th>
+	</tr>
+	<% for _, d in ipairs(devices) do %>
+	<tr>
+		<td><%=esc(d.name)%></td>
+		<td><%=esc(d.ip)%></td>
+		<td><%=esc(d.mac)%></td>
+		<td><% if (d.enabled or "1") == "1" then %><span class="kid-ok">启用</span><% else %><span class="kid-bad">停用</span><% end %></td>
+		<td><% if (d.block_dot or "1") == "1" then %>阻断<% else %>不阻断<% end %></td>
+		<td class="kid-actions">
+			<form method="post" action="<%=url%>">
+				<input type="hidden" name="do" value="toggle_device" />
+				<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
+				<input type="hidden" name="value" value="<% if (d.enabled or "1") == "1" then %>0<% else %>1<% end %>" />
+				<input class="btn cbi-button" type="submit" value="<% if (d.enabled or "1") == "1" then %>停用<% else %>启用<% end %>" />
+			</form>
+			<form method="post" action="<%=url%>">
+				<input type="hidden" name="do" value="delete_device" />
+				<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
+				<input class="btn cbi-button cbi-button-remove" type="submit" value="删除" />
+			</form>
+		</td>
+	</tr>
+	<% end %>
+</table>
+
+<details class="kid-panel">
+	<summary class="kid-summary"><%:分类屏蔽%>（<%=#categories%> 类）</summary>
+	<p class="kid-muted">分类开关会同步到 AdGuard Home 的服务级封锁，并补充常见中文 App 域名。开启后只影响被儿童管控规则导入 AdGuard 的设备。</p>
+	<div class="kid-category-grid">
+		<% for _, c in ipairs(categories) do %>
+		<div class="kid-category">
+			<div class="kid-category-title">
+				<h4><%=esc(c.name)%></h4>
+				<span class="<% if c.enabled then %>kid-pill kid-pill-ok<% else %>kid-pill<% end %>"><% if c.enabled then %>已启用<% else %>未启用<% end %></span>
+			</div>
+			<p class="kid-muted"><%=esc(c.desc)%></p>
+			<p class="kid-muted">服务：<%=#c.services%> 个，补充域名：<%=#c.domains%> 个</p>
+			<form method="post" action="<%=url%>">
+				<input type="hidden" name="do" value="toggle_category" />
+				<input type="hidden" name="id" value="<%=esc(c.id)%>" />
+				<input type="hidden" name="value" value="<% if c.enabled then %>0<% else %>1<% end %>" />
+				<input class="btn cbi-button <% if c.enabled then %>cbi-button-reset<% else %>cbi-button-apply<% end %>" type="submit" value="<% if c.enabled then %>关闭分类<% else %>开启分类<% end %>" />
+			</form>
+		</div>
+		<% end %>
+	</div>
+</details>
+
+<details class="kid-panel">
+	<summary class="kid-summary"><%:自定义屏蔽域名%>（<%=#domains%> 条）</summary>
+	<form method="post" action="<%=url%>">
+		<input type="hidden" name="do" value="add_domain" />
+		<div class="kid-switch-row">
+			<label style="flex: 1 1 320px;">域名或 URL<br /><input class="kid-input" name="domain" placeholder="example.com 或 https://example.com/path" /></label>
+			<span style="align-self: end;"><input class="btn cbi-button cbi-button-add" type="submit" value="<%:添加域名%>" /></span>
+		</div>
+		<p class="kid-muted">会自动生成 <code>||域名^</code>，屏蔽主域名和所有子域名；下方可停用或删除单条规则。</p>
+	</form>
+	<div class="kid-listbox">
+		<table class="kid-table">
+			<tr>
+				<th>域名</th>
+				<th>状态</th>
+				<th>操作</th>
+			</tr>
+			<% for _, d in ipairs(domains) do %>
+			<tr>
+				<td><%=esc(d.domain)%></td>
+				<td><% if (d.enabled or "1") == "1" then %><span class="kid-ok">启用</span><% else %><span class="kid-bad">停用</span><% end %></td>
+				<td class="kid-compact-actions">
+					<form method="post" action="<%=url%>">
+						<input type="hidden" name="do" value="toggle_domain" />
+						<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
+						<input type="hidden" name="value" value="<% if (d.enabled or "1") == "1" then %>0<% else %>1<% end %>" />
+						<input class="btn cbi-button" type="submit" value="<% if (d.enabled or "1") == "1" then %>停用<% else %>启用<% end %>" />
+					</form>
+					<form method="post" action="<%=url%>">
+						<input type="hidden" name="do" value="delete_domain" />
+						<input type="hidden" name="section" value="<%=esc(d['.name'])%>" />
+						<input class="btn cbi-button cbi-button-remove" type="submit" value="删除" />
+					</form>
+				</td>
+			</tr>
+			<% end %>
+		</table>
+	</div>
+</details>
+
+<div class="kid-grid">
+	<div class="kid-panel">
+		<h3><%:导出配置%></h3>
+		<p><a class="btn cbi-button" href="<%=export_url%>"><%:下载 JSON 备份%></a></p>
+		<p class="kid-muted">JSON 用于恢复配置；下面的表格和 CSV 更适合日常查看。</p>
+		<textarea class="kid-textarea" readonly="readonly"><%=esc(export_json)%></textarea>
+	</div>
+	<div class="kid-panel">
+		<h3><%:导入配置%></h3>
+		<form method="post" action="<%=url%>">
+			<input type="hidden" name="do" value="import" />
+			<textarea class="kid-textarea" name="import_json" placeholder="粘贴 kidcontrol-backup.json 内容"></textarea>
+			<p><input class="btn cbi-button cbi-button-apply" type="submit" value="<%:导入并应用%>" /></p>
+		</form>
+	</div>
+</div>
+
+<details class="kid-panel">
+	<summary class="kid-summary"><%:可读导出预览%></summary>
+	<div class="kid-grid">
+		<div class="kid-panel kid-readable">
+			<h3><%:设备表%></h3>
+			<table class="kid-table">
+				<tr>
+					<th>名称</th>
+					<th>IP</th>
+					<th>MAC</th>
+					<th>启用</th>
+					<th>阻断 DoT</th>
+				</tr>
+				<% for _, d in ipairs(devices) do %>
+				<tr>
+					<td><%=esc(d.name)%></td>
+					<td><%=esc(d.ip)%></td>
+					<td><%=esc(d.mac)%></td>
+					<td><% if (d.enabled or "1") == "1" then %>是<% else %>否<% end %></td>
+					<td><% if (d.block_dot or "1") == "1" then %>是<% else %>否<% end %></td>
+				</tr>
+				<% end %>
+			</table>
+		</div>
+		<div class="kid-panel kid-readable">
+			<h3><%:域名表%></h3>
+			<table class="kid-table">
+				<tr>
+					<th>域名</th>
+					<th>启用</th>
+					<th>AdGuard 规则</th>
+				</tr>
+				<% for _, d in ipairs(domains) do %>
+				<tr>
+					<td><%=esc(d.domain)%></td>
+					<td><% if (d.enabled or "1") == "1" then %>是<% else %>否<% end %></td>
+					<td><code>||<%=esc(d.domain)%>^</code></td>
+				</tr>
+				<% end %>
+			</table>
+		</div>
+	</div>
+</details>
+
+<details class="kid-panel">
+	<summary class="kid-summary"><%:CSV 文本%></summary>
+	<p class="kid-muted">可复制到 Excel、Numbers 或备忘录阅读；恢复配置仍请使用 JSON。</p>
+	<textarea class="kid-textarea" readonly="readonly"><%=esc(export_csv)%></textarea>
+</details>
+
+<h3><%:规则状态%></h3>
+<table class="kid-table">
+	<tr>
+		<th>设备</th>
+		<th>匹配方式</th>
+		<th>DNS 管控</th>
+		<th>DoT 853</th>
+		<th>DNS 命中</th>
+		<th>DoT 命中</th>
+	</tr>
+	<% for _, r in ipairs(rules) do %>
+	<tr>
+		<td><%=esc(r.name)%><br /><span class="kid-muted"><%=esc(r.ip)%></span></td>
+		<td>MAC<br /><code><%=esc(r.mac)%></code></td>
+		<td><% if r.enabled then %><span class="kid-pill kid-pill-ok">已启用</span><% else %><span class="kid-pill kid-pill-bad">已停用</span><% end %></td>
+		<td><% if r.block_dot then %><span class="kid-pill kid-pill-ok">阻断</span><% else %><span class="kid-pill">不阻断</span><% end %></td>
+		<td><%=esc(r.dns_packets)%> 次</td>
+		<td><%=esc(r.dot_packets)%> 次</td>
+	</tr>
+	<% end %>
+</table>
+
+<details class="kid-panel">
+	<summary class="kid-summary"><%:底层规则%></summary>
+	<p class="kid-muted">这里是排查问题时才需要看的 nft 规则，日常维护看上面的规则状态即可。</p>
+	<pre class="kid-code"><%=esc(nft)%></pre>
+</details>
+
+<%+footer%>

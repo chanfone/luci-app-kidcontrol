@@ -1,0 +1,15 @@
+{
+	"admin/services/kidcontrol": {
+		"title": "儿童上网管控",
+		"order": 91,
+		"action": {
+			"type": "call",
+			"module": "luci.controller.kidcontrol",
+			"function": "action_index"
+		},
+		"depends": {
+			"acl": [ "luci-app-kidcontrol" ],
+			"uci": { "kidcontrol": true }
+		}
+	}
+}

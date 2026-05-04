@@ -1,0 +1,10 @@
+Package: luci-app-kidcontrol
+Version: 1.0.0-1
+Architecture: all
+Maintainer: Henhui Home Router
+Section: luci
+Priority: optional
+Depends: luci-base, rpcd, firewall4, curl, adguardhome
+Description: LuCI parental control helper backed by AdGuard Home
+ A LuCI app for MAC-based child device DNS enforcement, category domain
+ blocking, custom blocklists, and AdGuard Home synchronization.
