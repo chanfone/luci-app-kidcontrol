@@ -414,31 +414,134 @@ local function enabled_service_ids()
 	return ids
 end
 
-local function sync_adguard_services()
-	local ids = enabled_service_ids()
+local function agh_settings()
 	local agh_url = trim(uci:get("kidcontrol", "main", "agh_url") or "http://192.168.1.1:3000")
 	local agh_user = trim(uci:get("kidcontrol", "main", "agh_user") or "admin")
 	local agh_password = uci:get("kidcontrol", "main", "agh_password") or ""
+	return agh_url, agh_user, agh_password
+end
+
+local function agh_login()
+	local agh_url, agh_user, agh_password = agh_settings()
 	if agh_password == "" then
-		return false, "请先在 /etc/config/kidcontrol 设置 main.agh_password，才能同步 AdGuard Home 服务分类。"
+		return false, "请先在 /etc/config/kidcontrol 设置 main.agh_password，才能同步 AdGuard Home。", agh_url
 	end
+	local f = io.open("/tmp/kidcontrol-agh-login.json", "w")
+	if not f then return false, "无法写入临时登录配置。", agh_url end
+	f:write(jsonc.stringify({ name = agh_user, password = agh_password }))
+	f:close()
+	local login = ""
+	for _ = 1, 20 do
+		login = cmd("curl -s -c /tmp/agh-kidcontrol.cookie -H 'Content-Type: application/json' -d @/tmp/kidcontrol-agh-login.json " .. agh_url .. "/control/login")
+		if login:match("OK") then return true, "AdGuard Home 登录成功。", agh_url end
+		os.execute("sleep 1")
+	end
+	return false, "AdGuard Home 登录失败，无法同步。", agh_url
+end
+
+local function agh_client_tags(name)
+	local lname = trim(name or ""):lower()
+	if lname:find("phone", 1, true) or lname:find("iphone", 1, true) or lname:find("android", 1, true) then
+		return { "device_phone", "user_child" }
+	end
+	if lname:find("pad", 1, true) or lname:find("tablet", 1, true) then
+		return { "device_tablet", "user_child" }
+	end
+	if lname:find("mac", 1, true) then
+		return { "device_laptop", "os_macos", "user_child" }
+	end
+	if lname:find("windows", 1, true) or lname:find("pc", 1, true) then
+		return { "device_pc", "os_windows", "user_child" }
+	end
+	return { "device_pc", "user_child" }
+end
+
+local function agh_client_payload(device)
+	local ids = {}
+	local ip = valid_ip(device.ip or "")
+	local mac = norm_mac(device.mac or "")
+	if ip then ids[#ids + 1] = ip end
+	if mac then ids[#ids + 1] = mac end
+	if #ids == 0 then return nil end
+	local name = trim(device.name or "")
+	if name == "" then name = mac and ("Kid-" .. mac:gsub(":", "")) or ("Kid-" .. ip:gsub("%.", "-")) end
+	return {
+		name = name,
+		ids = ids,
+		tags = agh_client_tags(name),
+		upstreams = {},
+		use_global_settings = true,
+		filtering_enabled = false,
+		parental_enabled = false,
+		safebrowsing_enabled = false,
+		safesearch_enabled = false,
+		use_global_blocked_services = true,
+		blocked_services = {},
+		ignore_querylog = false,
+		ignore_statistics = false
+	}
+end
+
+local function agh_find_client(clients, desired)
+	if type(clients) ~= "table" or type(desired) ~= "table" then return nil end
+	for _, c in ipairs(clients) do
+		if c.name == desired.name then return c end
+		if type(c.ids) == "table" and type(desired.ids) == "table" then
+			for _, existing_id in ipairs(c.ids) do
+				for _, desired_id in ipairs(desired.ids) do
+					if existing_id == desired_id then return c end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+local function sync_adguard_clients()
+	local ok, msg, agh_url = agh_login()
+	if not ok then return false, msg end
+	local body = cmd("curl -s -b /tmp/agh-kidcontrol.cookie " .. agh_url .. "/control/clients")
+	local data = jsonc.parse(body or "")
+	if type(data) ~= "table" or type(data.clients) ~= "table" then
+		return false, "读取 AdGuard Home 客户端列表失败。"
+	end
+	local changed = 0
+	for _, d in ipairs(sections("device")) do
+		local desired = agh_client_payload(d)
+		if desired then
+			local existing = agh_find_client(data.clients, desired)
+			local payload_path = "/tmp/kidcontrol-agh-client.json"
+			local endpoint = "/control/clients/add"
+			local payload = desired
+			if existing then
+				endpoint = "/control/clients/update"
+				payload = { name = existing.name, data = desired }
+			end
+			local f = io.open(payload_path, "w")
+			if not f then return false, "无法写入临时客户端配置。" end
+			f:write(jsonc.stringify(payload))
+			f:close()
+			local out = cmd("curl -s -b /tmp/agh-kidcontrol.cookie -H 'Content-Type: application/json' -d @" .. payload_path .. " " .. agh_url .. endpoint)
+			if out and #trim(out) > 0 then
+				return false, "同步 AdGuard Home 客户端失败：" .. out
+			end
+			changed = changed + 1
+			body = cmd("curl -s -b /tmp/agh-kidcontrol.cookie " .. agh_url .. "/control/clients")
+			data = jsonc.parse(body or "") or data
+		end
+	end
+	return true, "AdGuard Home 客户端已同步 " .. changed .. " 台。"
+end
+
+local function sync_adguard_services()
+	local ids = enabled_service_ids()
 	local payload = jsonc.stringify(ids)
 	local f = io.open("/tmp/kidcontrol-services.json", "w")
 	if not f then return false, "无法写入临时服务分类配置。" end
 	f:write(payload)
 	f:close()
-	f = io.open("/tmp/kidcontrol-agh-login.json", "w")
-	if not f then return false, "无法写入临时登录配置。" end
-	f:write(jsonc.stringify({ name = agh_user, password = agh_password }))
-	f:close()
-
-	local login = ""
-	for _ = 1, 20 do
-		login = cmd("curl -s -c /tmp/agh-kidcontrol.cookie -H 'Content-Type: application/json' -d @/tmp/kidcontrol-agh-login.json " .. agh_url .. "/control/login")
-		if login:match("OK") then break end
-		os.execute("sleep 1")
-	end
-	if not login:match("OK") then return false, "AdGuard Home 登录失败，无法同步服务分类。" end
+	local ok, msg, agh_url = agh_login()
+	if not ok then return false, msg end
 	local out = ""
 	for _ = 1, 20 do
 		out = cmd("curl -s -b /tmp/agh-kidcontrol.cookie -H 'Content-Type: application/json' -d @/tmp/kidcontrol-services.json " .. agh_url .. "/control/blocked_services/set")
@@ -496,12 +599,14 @@ local function apply_all()
 	dedupe_config()
 	sync_dhcp()
 	local ok, msg = sync_adguard_rules()
+	local ok_clients, msg_clients = sync_adguard_clients()
 	local ok_services, msg_services = sync_adguard_services()
 	local out = cmd("/etc/init.d/kidcontrol reload")
 	if not ok then return false, msg end
+	if not ok_clients then return false, msg_clients end
 	if not ok_services then return false, msg_services end
 	if out and #out > 0 then return true, msg .. "\n" .. out end
-	return true, msg .. "\n" .. msg_services .. "\n儿童管控规则已应用。"
+	return true, msg .. "\n" .. msg_clients .. "\n" .. msg_services .. "\n儿童管控规则已应用。"
 end
 
 local function export_data()
